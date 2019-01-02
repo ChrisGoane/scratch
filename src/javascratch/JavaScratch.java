@@ -5,38 +5,146 @@
  */
 package javascratch;
 
+import java.math.*;
 import org.apache.commons.lang3.ArrayUtils;
+import org.apache.commons.lang3.BooleanUtils;
 
-/**
+import javax.xml.bind.DatatypeConverter;
+
+/*
  *
  * @author chris
  */
-public class JavaScratch {
+public class JavaScratch
+{
 
-    /**
+    private final static int PAYLOAD_BEACON_1_0  = 0x00;
+    private final static int PAYLOAD_BEACON_2_0  = 0x01;
+    private final static int PAYLOAD_BEACON_3_0  = 0x03;
+    private final static int PAYLOAD_ANALOG      = 0x07;
+    private final static int PAYLOAD_PUSHBUTTON  = 0x06;
+
+    private final static String TEST_DATA1 = "0171969CDEA02400000889";
+    private final static String TEST_DATA2 = "0101151F3922310007DED6";
+
+    /*
      * @param args the command line arguments
      */
-    public static void main(String[] args) {
-
+    public static void main(String[] args)
+    {
         // sample Tracker pkt
-//        byte[] samplePkt = { 01, 0c, ee, 1f, 8f, 02, a5, 04, 6e, 35, fa };
-        byte[] samplePkt = javax.xml.bind.DatatypeConverter.parseHexBinary("010CEE1F8F02A5046E35FA");
+        byte[] samplePkt = javax.xml.bind.DatatypeConverter.parseHexBinary(TEST_DATA1);
 
-        byte[] snBuf = GetSubArray(samplePkt, samplePkt.length - 8, 4);
-        
-        System.out.println("S/N before: " + snBuf);
-        ArrayUtils.reverse(snBuf);
-        System.out.println("S/N AFTER: " + snBuf);
-        
-        long serialNum = unsignedIntToLong(snBuf);
-        System.out.println("S/N Before mask: " + serialNum);
-        serialNum &= 0x3FFFFFFF;
-        System.out.println("S/N AFTER mask: " + serialNum);
+        parseTrackerPacket(samplePkt);
     }
-    
+
+    private static void parseTrackerPacket(byte[] inPacket)
+    {
+        byte[] bufTemp;
+
+        // determine which device family sent this message
+        // grab the portion of the pkt which contains the Message Type Flag
+        bufTemp = GetSubArray(inPacket, inPacket.length - 11, 1);
+        int iMsgTypeFlag = bufTemp[0];
+
+        switch (iMsgTypeFlag) {
+            case PAYLOAD_BEACON_2_0:
+                parsePayload2_0(inPacket);
+                break;
+
+            default:    // all other trackers - for now
+                System.out.printf("Unknown Payload type %n");
+                break;
+        }
+
+    }
+
+    /*
+     * parse the tracker packet according to the 2.0 spec which defines a 10-byte payload
+     * @param inPacket the advertisement payload
+     *
+     * Example:
+     *      Input: "0171969CDEA02400000889"
+     *      Output:
+     *              Battery Flag: false
+     *              TxID: 1626 (0x65a)
+     *              S/N: 484352036 (0x1cdea024)
+     *              Cum Hours: 0.6 Secs: 2185 (0x00000889)
+     */
+    private static void parsePayload2_0(byte[] inPacket)
+    {
+        byte[] bufTemp;
+
+        /*
+         * Battery Flag parsing
+         *
+         * grab the portion of the pkt which contains the Battery Flag
+         */
+        bufTemp = GetSubArray(inPacket, inPacket.length - 10, 1);
+
+        // NOTE the Battery Flag is only 1 bit! Lop off the 15 LSBs and pack right
+        int iBattFlag = (bufTemp[0] >>> 15) & 0x01;
+
+        boolean bBattFlag = BooleanUtils.toBoolean(iBattFlag);
+        System.out.printf("Battery Flag: %b %n", bBattFlag);
+
+        /*
+         * Transmission ID parsing
+         *
+         * grab the portion of the pkt which contains the Tx ID
+         * get 2 bytes, but the Tx ID is actually only 13 bits which straddles 2 byte boundaries
+         */
+        bufTemp = GetSubArray(inPacket, inPacket.length - 10, 4);
+
+//        ArrayUtils.reverse(bufTemp);
+
+        long ltemp = unsignedIntToLong(bufTemp);
+
+        // NOTE the Tx ID is only 13 bits! Lop off the 1 MSB and 6 LSBs and pack right
+        long TxId = (ltemp >>> 14) & 0x1FFF;
+        System.out.printf("TxID: %s (0x%s) %n", TxId, Long.toHexString(TxId));
+
+        /*
+         *  Serial Number parsing
+         *
+         * grab the portion of the pkt which contains the Serial Number (get 4 bytes, but the S/N is actually only 30 bits)
+         */
+        bufTemp = GetSubArray(inPacket, inPacket.length - 8, 4);
+
+//        ArrayUtils.reverse(bufTemp);
+
+        long serialNum = unsignedIntToLong(bufTemp);
+
+        // NOTE: the Serial Number is only 30 bits! Lop off the 2 MSBs
+        serialNum &= 0x3FFFFFFF;
+        System.out.printf("S/N: %s (0x%s) %n", serialNum, Long.toHexString(serialNum));
+
+        /*
+         *  Cumulative Machine Hours parsing
+         *
+         * grab the portion of the pkt which contains the Machine Runtime Hours
+         */
+        bufTemp = GetSubArray(inPacket, inPacket.length - 4, 4);
+        String secsStr = DatatypeConverter.printHexBinary(bufTemp);
+
+        long lSecs = unsignedIntToLong(bufTemp);
+        BigDecimal seconds = new BigDecimal(lSecs);
+        BigDecimal secsPerHour = new BigDecimal(3600.0);
+
+        // calc machine hours to 1 decimal place. Round DOWN to be conservative...
+        BigDecimal hours = seconds.divide(secsPerHour, 1, RoundingMode.HALF_DOWN);
+        System.out.printf("Cum Hours: %s Secs: %s (0x%s) %n", hours, seconds, secsStr);
+        // end Cumulative Machine Hours parsing
+
+        // TODO: get the data below at trhe App Level
+//        t.LastCaptured = DateTime.Now;
+//        t.Rssi = rssi;
+//        t.MacAddress = BitConverter.ToString(source.Reverse().ToArray());
+
+    }
+
     private static byte[] GetSubArray(byte[] source, int srcBegin, int length) {
-//        int srcEnd = srcBegin + length - 1;
-        
+
         byte[] destination = new byte[length]; // alloc storage for the result
         System.arraycopy(source, srcBegin, destination, 0, length);
 
@@ -53,13 +161,13 @@ public class JavaScratch {
         l <<= 8;
         l |= b[3] & 0xFF;
         return l;
-  }
+    }
 
 }
 
  
  
-/**
+/*
     Here is some C# code that parses our “01” advertisement message type:
 
     Given an array of bytes like this:
