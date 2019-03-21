@@ -17,7 +17,6 @@ import javax.xml.bind.DatatypeConverter;
  */
 public class JavaScratch
 {
-
     private final static int PAYLOAD_BEACON_1_0  = 0x00;
     private final static int PAYLOAD_BEACON_2_0  = 0x01;
     private final static int PAYLOAD_BEACON_3_0  = 0x03;
@@ -42,11 +41,11 @@ public class JavaScratch
     {
         byte[] bufTemp;
 
-        // determine which device family sent this message
         // grab the portion of the pkt which contains the Message Type Flag
         bufTemp = GetSubArray(inPacket, inPacket.length - 11, 1);
         int iMsgTypeFlag = bufTemp[0];
 
+        // determine which device family sent this message
         switch (iMsgTypeFlag) {
             case PAYLOAD_BEACON_2_0:
                 parsePayload2_0(inPacket);
@@ -56,7 +55,6 @@ public class JavaScratch
                 System.out.printf("Unknown Payload type %n");
                 break;
         }
-
     }
 
     /*
@@ -74,6 +72,7 @@ public class JavaScratch
     private static void parsePayload2_0(byte[] inPacket)
     {
         byte[] bufTemp;
+        BTPacketContents parseResults = new BTPacketContents();
 
         /*
          * Battery Flag parsing
@@ -87,6 +86,7 @@ public class JavaScratch
 
         boolean bBattFlag = BooleanUtils.toBoolean(iBattFlag);
         System.out.printf("Battery Flag: %b %n", bBattFlag);
+        parseResults.setbBattFlag(bBattFlag);
 
         /*
          * Transmission ID parsing
@@ -100,9 +100,10 @@ public class JavaScratch
 
         long ltemp = unsignedIntToLong(bufTemp);
 
-        // NOTE the Tx ID is only 13 bits! Lop off the 1 MSB and 6 LSBs and pack right
+        // NOTE the Tx ID is only 13 bits! Lop off 1 MSB and 6 LSBs and pack right
         long TxId = (ltemp >>> 14) & 0x1FFF;
         System.out.printf("TxID: %s (0x%s) %n", TxId, Long.toHexString(TxId));
+        parseResults.setlTxId(TxId);
 
         /*
          *  Serial Number parsing
@@ -118,6 +119,7 @@ public class JavaScratch
         // NOTE: the Serial Number is only 30 bits! Lop off the 2 MSBs
         serialNum &= 0x3FFFFFFF;
         System.out.printf("S/N: %s (0x%s) %n", serialNum, Long.toHexString(serialNum));
+        parseResults.setlSerialNum(serialNum);
 
         /*
          *  Cumulative Machine Hours parsing
@@ -134,7 +136,8 @@ public class JavaScratch
         // calc machine hours to 1 decimal place. Round DOWN to be conservative...
         BigDecimal hours = seconds.divide(secsPerHour, 1, RoundingMode.HALF_DOWN);
         System.out.printf("Cum Hours: %s Secs: %s (0x%s) %n", hours, seconds, secsStr);
-        // end Cumulative Machine Hours parsing
+        parseResults.setlCumMachineHrs(hours.longValue());
+        parseResults.setlCumMachineSecs(seconds.longValue());
 
         // TODO: get the data below at trhe App Level
 //        t.LastCaptured = DateTime.Now;
@@ -163,6 +166,59 @@ public class JavaScratch
         return l;
     }
 
+    /**
+     * BTPacketContents
+     * help class contains the fields which were parsed from the 10-byte Tracker 2.0 payload
+     */
+    static class BTPacketContents {
+        private boolean bBattFlag;
+        private long lTxId;
+        private long lSerialNum;
+        private long lCumMachineHrs;
+        private long lCumMachineSecs;
+
+        BTPacketContents(){}
+
+        public void setbBattFlag(boolean bBattFlag) {
+            this.bBattFlag = bBattFlag;
+        }
+
+        public boolean isbBattFlag() {
+            return bBattFlag;
+        }
+
+        public long getlTxId() {
+            return lTxId;
+        }
+
+        public void setlTxId(long lTxId) {
+            this.lTxId = lTxId;
+        }
+
+        public void setlSerialNum(long lSerialNum) {
+            this.lSerialNum = lSerialNum;
+        }
+
+        public long getlSerialNum() {
+            return lSerialNum;
+        }
+
+        public void setlCumMachineHrs(long lCumMachineHrs) {
+            this.lCumMachineHrs = lCumMachineHrs;
+        }
+
+        public long getlCumMachineHrs() {
+            return lCumMachineHrs;
+        }
+
+        public void setlCumMachineSecs(long lCumMachineSecs) {
+            this.lCumMachineSecs = lCumMachineSecs;
+        }
+
+        public long getlCumMachineSecs() {
+            return lCumMachineSecs;
+        }
+    }
 }
 
  
